@@ -1,94 +1,90 @@
 version: "3.9"
 
 services:
-  ruuter-v1-public:
-    container_name: ruuter-v1-public
-    image: riaee/byk-chatbot-public-ruuter:05
+  ruuter-public:
+    container_name: ruuter-public
+    image: ruuter
     environment:
-      - csrf.enabled=false
-      - csrf.tim_userinfo_url=
-      - csrf.ruuter_services_whitelist=
-      - legacy-portal-integration.sessionCookieDomain=buerokratt.ee
-      - allowed.requested.method.types=POST,GET
-      - ruuter.cors.allowedOrigins=https://buerokratt.ee,https://admin.buerokratt.ee,https://tim.buerokratt.ee,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004
-      - maxRequestSizeBytes=10000000000
-      - default.requested.method.type=POST
-      - incoming.request.external.validation.enabled=false
-      - requested.method.type.error.http.response.code=200
-      - verify.requested.method.type=false
-      - incoming.request.external.validation.endpoint=
-      - headers.contentSecurityPolicy=
-      - logging.level.root=INFO
+      - application.cors.allowedOrigins=http://localhost:8086,http://localhost:3001,http://localhost:3003,http://localhost:3004,http://localhost:8080,https://smax.example.com
+      - application.httpCodesAllowList=200,201,202,400,401,403,500
+      - application.internalRequests.allowedIPs=127.0.0.1
+      - application.logging.displayRequestContent=true
+      - application.logging.displayResponseContent=true
+      - application.logging.printStackTrace=true
+      - application.internalRequests.disabled=true
+      - application.httpRequestTimeout=50000
+      - server.port=8086
     volumes:
-      - ./setup/ruuter/server.xml:/usr/local/tomcat/conf/server.xml:ro
-      - ./setup/ruuter/public.urls.docker.json:/usr/local/tomcat/urls.env.json:ro
-      - ./setup/ruuter/cert.crt:/usr/local/tomcat/conf/cert.crt:ro
-      - ./setup/ruuter/key.key:/usr/local/tomcat/conf/key.key:ro
-      - ./DSL.Ruuter-v1.public:/usr/local/tomcat/configurations
+      - ./DSL/Ruuter.public:/DSL
+      - ./constants.ini:/app/constants.ini
     ports:
-      - 8080:8080
-    restart: always
+      - 8086:8086
+    networks:
+      - bykstack
+    cpus: "0.5"
+    mem_limit: "512M"
+
+  cron-manager:
+    container_name: cron-manager
+    image: cron-manager
+    # user: root # This root user is only for local development due to multi container mounted volume permissions
+    volumes:
+      - ./DSL/CronManager:/DSL
+    environment:
+      - server.port=9010
+    ports:
+      - 9010:9010
     networks:
       - bykstack
 
-  ruuter-v1-private:
-    container_name: ruuter-v1-private
-    image: riaee/byk-chatbot-private-ruuter:05
+  ruuter-private:
+    container_name: ruuter-private
+    image: ruuter
     environment:
-      - legacy-portal-integration.sessionCookieDomain=buerokratt.ee
-      - logging.level.root=INFO
-      - ruuter.cors.allowedOrigins=https://buerokratt.ee,https://admin.buerokratt.ee,https://tim.buerokratt.ee,http://localhost:3001,http://localhost:3002,http://localhost:3003,http://localhost:3004
-      - headers.contentSecurityPolicy=
-      - maxRequestSizeBytes=10000000000
-      - incoming.request.external.validation.enabled=false
-      - incoming.request.external.validation.endpoint=
-      - verify.requested.method.type=false
-      - allowed.requested.method.types=POST
-      - default.requested.method.type=POST
-      - requested.method.type.error.http.response.code=200
-      - csrf.enabled=false
-      - csrf.tim_userinfo_url=
-      - csrf.ruuter_services_whitelist=
-      - ip-whitelist.routes[0].ips[0]=127.0.0.1
-      - ip-whitelist.routes[0].patterns[0]=/functions/*
-      - ip-whitelist.routes[1].ips[0]=127.0.0.1
-      - ip-whitelist.routes[1].patterns[0]=/get-location-coordinates
-      - ip-whitelist.routes[1].patterns[1]=/get-weather-data
-      - ip-whitelist.routes[1].patterns[2]=/get-weather-station-id
-      - ip-whitelist.routes[1].patterns[3]=/get-weather
-      - ip-whitelist.routes[1].patterns[4]=/param_string_length
+      - application.cors.allowedOrigins=http://localhost:8082,http://localhost:3001,http://localhost:3003
+      - application.httpCodesAllowList=200,201,202,400,401,403,500
+      - application.internalRequests.allowedIPs=127.0.0.1
+      - application.logging.displayRequestContent=true
+      - application.logging.displayResponseContent=true
+      - application.logging.printStackTrace=true
+      - application.internalRequests.disabled=true
+      - application.httpRequestTimeout=50000
+      - server.port=8088
+      - application.externalAuthAllowed=/cron-tasks/delete-conversations,chats/back-up-removable-chats,chats/chat-to-remove,chats/empty-conversations-by-chat-ids,smax/chats/sync,/cron-tasks/end-dead-chats,jira/chats/sync
     volumes:
-      - ./setup/ruuter/server.xml:/usr/local/tomcat/conf/server.xml:ro
-      - ./setup/ruuter/private.urls.docker.json:/usr/local/tomcat/urls.env.json:ro
-      - ./setup/ruuter/cert.crt:/usr/local/tomcat/conf/cert.crt:ro
-      - ./setup/ruuter/key.key:/usr/local/tomcat/conf/key.key:ro
-      - ./DSL.Ruuter-v1.private:/usr/local/tomcat/configurations
+      - ./DSL/Ruuter.private:/DSL
+      - ./constants.ini:/app/constants.ini
     ports:
-      - 8090:8080
-    restart: always
+      - 8088:8088
     networks:
       - bykstack
+    cpus: "0.5"
+    mem_limit: "512M"
 
   tim:
     container_name: tim
     image: tim
     depends_on:
       - tim-postgresql
+    environment:
+      - SECURITY_ALLOWLIST_JWT=ruuter-private,ruuter-public,data-mapper,resql,tim,tim-postgresql,chat-widget,authentication-layer,127.0.0.1,::1
+      - JWT_INTEGRATION_SIGNATURE_KEY_STORE_PASSWORD=defaultpassword
     ports:
       - 8085:8085
     networks:
       - bykstack
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    cpus: "0.5"
+    mem_limit: "512M"
 
   tim-postgresql:
     container_name: tim-postgresql
     image: postgres:14.1
-    environment:
-      - POSTGRES_USER=tim
-      - POSTGRES_PASSWORD=123
-      - POSTGRES_DB=tim
-      - POSTGRES_HOST_AUTH_METHOD=trust
+    depends_on:
+      - vault-agent-backoffice
+    env_file:
+      - ./vault/agent-out/tim-postgresql.env
     volumes:
       - ./tim-db:/var/lib/postgresql/data
     ports:
@@ -96,71 +92,71 @@ services:
     networks:
       - bykstack
 
-  ruuter-v2-private:
-    container_name: ruuter-v2-private
-    image: ruuter
+  data-mapper:
+    container_name: data-mapper
+    image: data-mapper
     environment:
-      - application.cors.allowedOrigins=http://localhost:8082,http://localhost:3001,http://localhost:3003
-      - application.httpCodesAllowList=200,201,202,400,401,403,500
-      - application.logging.displayRequestContent=true
-      - application.logging.displayResponseContent=true
-      - server.port=8088
-    volumes:
-      - ./DSL.Ruuter.private/DSL:/DSL
-    ports:
-      - 8088:8088
-    networks:
-      - bykstack
-
-  ruuter-v2-public:
-    container_name: ruuter-v2-public
-    image: ruuter
-    environment:
-      - application.cors.allowedOrigins=http://localhost:8086,http://localhost:3001,http://localhost:3003
-      - application.httpCodesAllowList=200,201,202,400,401,403,500
-      - application.logging.displayRequestContent=true
-      - application.logging.displayResponseContent=true
-      - server.port=8086
-    volumes:
-      - ./DSL.Ruuter.public/DSL:/DSL
-    ports:
-      - 8086:8086
-    networks:
-      - bykstack
-
-  dmapper:
-    container_name: dmapper
-    image: riaee/byk-dmapper:11
-    environment:
-      - logging.level.root=INFO
-      - headers.contentSecurityPolicy=
-      - cors.allowedOrigins=ruuter.test.buerokratt.ee,https://ruuter.aadress.ee
-    ports:
-      - 3000:3000
-    volumes:
-      - ./setup/dmapper/server.xml:/usr/local/tomcat/conf/server.xml:ro
-      - ./setup/dmapper/cert.crt:/usr/local/tomcat/conf/tls.crt:ro
-      - ./setup/dmapper/key.key:/usr/local/tomcat/conf/tls.key:ro
-      - ./DSL.DMapper:/usr/local/tomcat/templates/v2/
-    restart: always
-    networks:
-      - bykstack
-
-  dmapper-v2:
-    container_name: dmapper-v2
-    image: datamapper-node
-    environment:
-      - PORT=3005
+      - PORT=3000
       - CONTENT_FOLDER=/data
+      - RATE_LIMIT_PER_MINUTE=1000
+      - SMAX_AUTHENTICATION_URL=https://smax.example.com/auth/authentication-endpoint/authenticate/token
     volumes:
       - ./DSL:/data
-      - ./DSL.DMapper-v2/hbs:/workspace/app/views/chat-bot
-      - ./DSL.DMapper-v2/js:/workspace/app/js/chat-bot
-      - ./DSL.DMapper-v2/lib:/workspace/app/lib
+      - ./DSL/DMapper/backoffice/hbs:/workspace/app/views/backoffice
+      - ./DSL/DMapper/backoffice/js:/workspace/app/js/backoffice
     ports:
-      - 3005:3005
+      - 3000:3000
     networks:
       - bykstack
+
+  s3-ferry:
+    container_name: s3-ferry
+    image: s3-ferry
+    environment:
+      - API_CORS_ORIGIN=*
+      - API_DOCUMENTATION_ENABLED=true
+
+      - S3_DEFAULT_REGION=us-east-1
+      - S3_DEFAULT_ENDPOINT_URL=http://s3.localhost:4566
+      - S3_DEFAULT_ACCESS_KEY_ID=accesskey
+      - S3_DEFAULT_SECRET_ACCESS_KEY=secretkey
+      - S3_DEFAULT_DATA_BUCKET_NAME=buerokratt
+      - S3_DEFAULT_DATA_BUCKET_PATH=
+      - S3_DEFAULT_FS_DATA_DIRECTORY_PATH=/data
+
+      - S3_CHATS_REGION=us-east-1
+      - S3_CHATS_ENDPOINT_URL=http://s3.localhost:4566
+      - S3_CHATS_ACCESS_KEY_ID=accesskey
+      - S3_CHATS_SECRET_ACCESS_KEY=secretkey
+      - S3_CHATS_DATA_BUCKET_NAME=chats
+      - S3_CHATS_DATA_BUCKET_PATH=
+      - S3_CHATS_FS_DATA_DIRECTORY_PATH=/chats
+
+      - AZURE_ACCOUNT_1_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=testaccount1;AccountKey=dGVzdGtleTE9PQ==;BlobEndpoint=http://localhost:10000/testaccount1;QueueEndpoint=http://localhost:10001/testaccount1;TableEndpoint=http://localhost:10002/testaccount1;
+      - AZURE_ACCOUNT_2_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=testaccount2;AccountKey=dGVzdGtleTI9PQ==;BlobEndpoint=http://localhost:10000/testaccount2;QueueEndpoint=http://localhost:10001/testaccount2;TableEndpoint=http://localhost:10002/testaccount2;
+      - AZURE_ACCOUNT_3_CONNECTION_STRING=DefaultEndpointsProtocol=http;AccountName=testaccount3;AccountKey=dGVzdGtleTM9PQ==;BlobEndpoint=http://localhost:10000/testaccount3;QueueEndpoint=http://localhost:10001/testaccount3;TableEndpoint=http://localhost:10002/testaccount3;
+    ports:
+      - 3005:3000
+    volumes:
+      - ./DSL:/data
+    networks:
+      - bykstack
+    depends_on:
+     - localstack
+
+  localstack:
+    container_name: localstack
+    image: localstack/localstack:3.3.0
+    environment:
+      - SERVICES=s3:4566
+    ports:
+      - 4566:4566
+    volumes:
+      - ./scripts/localstack-init.sh:/etc/localstack/init/ready.d/init.sh
+    networks:
+      bykstack:
+        aliases:
+          - s3.localhost
 
   resql:
     container_name: resql
@@ -176,7 +172,7 @@ services:
     ports:
       - 8082:8082
     volumes:
-      - ./DSL.Resql:/workspace/app/templates/byk
+      - ./DSL/Resql:/DSL
     networks:
       - bykstack
 
@@ -194,20 +190,80 @@ services:
     networks:
       - bykstack
 
+  resql_training:
+    container_name: resql-training
+    image: resql
+    environment:
+      - sqlms.datasources.[0].name=byk
+      - sqlms.datasources.[0].jdbcUrl=jdbc:postgresql://171.22.247.13:5434/train_db
+      - sqlms.datasources.[0].username=byk
+      - sqlms.datasources.[0].password=01234
+      - logging.level.org.springframework.boot=INFO
+      - server.port=8083
+    ports:
+      - 8083:8083
+    volumes:
+      - ./DSL/Resql:/DSL
+    networks:
+      - bykstack
+
+  resql_service:
+    container_name: resql-service
+    image: resql
+    environment:
+      - sqlms.datasources.[0].name=byk
+      - sqlms.datasources.[0].jdbcUrl=jdbc:postgresql://171.22.247.13:5435/services_db
+      - sqlms.datasources.[0].username=byk
+      - sqlms.datasources.[0].password=01234
+      - logging.level.org.springframework.boot=INFO
+      - server.port=8084
+    ports:
+      - 8084:8084
+    volumes:
+      - ./DSL/Resql:/DSL
+    networks:
+      - bykstack
+    cpus: "0.5"
+    mem_limit: "1G"
+
   gui:
     container_name: gui
     environment:
       - NODE_ENV=development
-      - BASE_URL=http://localhost:8080
-      - REACT_APP_RUUTER_API_URL=http://localhost:8080
-      - REACT_APP_RUUTER_V1_PRIVATE_API_URL=http://localhost:8090
-      - REACT_APP_RUUTER_V2_PRIVATE_API_URL=http://localhost:8088
+      - BASE_URL=http://localhost:8080/backoffice
+      - REACT_APP_RUUTER_API_URL=http://localhost:8086/backoffice
+      - REACT_APP_RUUTER_PRIVATE_API_URL=http://localhost:8088/backoffice
       - REACT_APP_CUSTOMER_SERVICE_LOGIN=http://localhost:3004/et/dev-auth
+      - REACT_APP_NOTIFICATION_NODE_URL=http://localhost:4040
+      - REACT_APP_CSP=upgrade-insecure-requests; default-src 'self'; font-src 'self' data:; img-src * data:; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; object-src 'none'; connect-src 'self' http://localhost:8086 http://localhost:8088 http://localhost:8085 http://localhost:4040 https://admin.dev.buerokratt.ee/chat/menu.json;
+      - DEBUG_ENABLED=true
       - CHOKIDAR_USEPOLLING=true
       - PORT=3001
+      - REACT_APP_BUEROKRATT_CHATBOT_URL=http://buerokratt-chat:8086
+      - REACT_APP_MENU_URL=https://admin.dev.buerokratt.ee
+      - REACT_APP_MENU_PATH=/chat/menu.json
+      - REACT_APP_CONVERSATIONS_BASE_URL=http://localhost:8080/chat
+      - REACT_APP_TRAINING_BASE_URL=http://localhost:8080/training
+      - REACT_APP_ANALYTICS_BASE_URL=http://localhost:8080/analytics
+      - REACT_APP_SERVICES_BASE_URL=http://localhost:8080/services
+      - REACT_APP_SETTINGS_BASE_URL=http://localhost:8080/settings
+      - REACT_APP_MONITORING_BASE_URL=http://localhost:8080/monitoring
+      - REACT_APP_SERVICE_ID=conversations,settings,monitoring
+      - REACT_APP_ENABLE_HIDDEN_FEATURES=true
+      - REACT_APP_VALIDATIONS_ENABLED=FALSE
+      - REACT_APP_ENABLE_MULTI_DOMAIN=TRUE
+      - REACT_APP_RUUTER_PRIVATE_ENDED_API_URL=http://localhost:8088/backoffice
+      - REACT_APP_SHOW_AUTO_CLOSE_CONFIG=TRUE
+      - REACT_APP_SHOW_TEST_MESSAGE=TRUE
+      - REACT_APP_JIRA_INTEGRATION_ENABLED=FALSE
+      - REACT_APP_SMAX_INTEGRATION_ENABLED=FALSE
+      - REACT_APP_REFLECT_DOMAINS=FALSE
+      - REACT_APP_CURRENT_VERSION=Version 1.0.0
+      - REACT_APP_MENU_JSON=[{"id":"conversations","label":{"et":"Vestlused","en":"Conversations"},"path":"/chat","children":[{"label":{"et":"Vastamata","en":"Unanswered"},"path":"/unanswered"},{"label":{"et":"Aktiivsed","en":"Active"},"path":"/active"},{"label":{"et":"Ootel","en":"Pending"},"path":"/pending"},{"label":{"et":"Ajalugu","en":"History"},"path":"/history"},{"label":{"et":"Valideerimised","en":"Validations"},"path":"/validations"}]},{"id":"training","label":{"et":"Treening","en":"Training"},"path":"/training","children":[{"label":{"et":"Treening","en":"Training"},"path":"/training","children":[{"label":{"et":"Teemad","en":"Themes"},"path":"/training/intents"},{"hidden":true,"label":{"et":"Avalikud teemad","en":"Public themes"},"path":"/training/common-intents"},{"label":{"et":"Teemade järeltreenimine","en":"Post training themes"},"path":"/training/intents-followup-training"},{"label":{"et":"Vastused","en":"Answers"},"path":"/training/responses"},{"label":{"et":"Reeglid","en":"Rules"},"path":"/training/rules"},{"hidden":true,"label":{"et":"Konfiguratsioon","en":"Configuration"},"path":"/training/configuration"},{"label":{"et":"Vormid","en":"Forms"},"path":"/training/forms"},{"label":{"et":"Mälukohad","en":"Slots"},"path":"/training/slots"}]},{"label":{"et":"Ajaloolised vestlused","en":"Historical conversations"},"path":"/history","children":[{"label":{"et":"Ajalugu","en":"History"},"path":"/history/history"},{"hidden":true,"label":{"et":"Pöördumised","en":"Appeals"},"path":"/history/appeal"}]},{"label":{"et":"Mudelipank ja analüütika","en":"Modelbank and analytics"},"path":"/analytics","children":[{"label":{"et":"Teemade ülevaade","en":"Overview of topics"},"path":"/analytics/overview"},{"label":{"et":"Mudelite võrdlus","en":"Comparison of models"},"path":"/analytics/models"},{"hidden":true,"label":{"et":"Testlood","en":"testTracks"},"path":"/analytics/testcases"}]},{"label":{"et":"Treeni uus mudel","en":"Train new model"},"path":"/train-new-model"}]},{"id":"analytics","label":{"et":"Analüütika","en":"Analytics"},"path":"/analytics","children":[{"label":{"et":"Ülevaade","en":"Overview"},"path":"/overview"},{"label":{"et":"Vestlused","en":"Chats"},"path":"/chats"},{"label":{"et":"Tagasiside","en":"Feedback"},"path":"/feedback"},{"label":{"et":"Avaandmed","en":"Reports"},"path":"/reports"}]},{"id":"services","hidden":true,"label":{"et":"Teenused","en":"Services"},"path":"/services","children":[{"label":{"et":"Ülevaade","en":"Overview"},"path":"/overview"},{"label":{"et":"Uus teenus","en":"New Service"},"path":"/newService"},{"label":{"et":"Probleemsed teenused","en":"Faulty Services"},"path":"/faultyServices"}]},{"id":"knowledge-center","label":{"et":"Teadmuskeskus","en":"Knowledge Center"},"path":"/knowledge-center","children":[{"id":"rag-search","label":{"et":"Mudelid ja seadistused","en":"Models management"},"path":"/rag-search","children":[{"label":{"et":"Mudelite ühendused","en":"LLM connections"},"path":"/rag-search/llm-connections"},{"label":{"et":"Viiba Seaded","en":"Prompt Configurations"},"path":"/rag-search/prompt-configurations"},{"label":{"et":"Testi mudelit","en":"Test LLM"},"path":"/rag-search/test-llm"}]},{"id":"ckb","label":{"et":"Teadmusbaas","en":"Knowledge Base"},"path":"/ckb","children":[{"label":{"et":"Agentuur","en":"Agency"},"path":"/ckb/agency"},{"label":{"et":"Aruanded","en":"Reports"},"path":"/ckb/reports"},{"label":{"et":"API Integratsioonid","en":"API Integrations"},"path":"/ckb/api"}]}]},{"id":"settings","label":{"et":"Haldus","en":"Administration"},"path":"/settings","children":[{"label":{"et":"Kasutajad","en":"Users"},"path":"/users"},{"label":{"et":"Vestlusbot","en":"Chatbot"},"path":"/chatbot","children":[{"label":{"et":"Seaded","en":"Settings"},"path":"/chatbot/settings"},{"label":{"et":"Tervitussõnum","en":"Welcome message"},"path":"/chatbot/welcome-message"},{"label":{"et":"Välimus ja käitumine","en":"Appearance and behavior"},"path":"/chatbot/appearance"},{"label":{"et":"Erakorralised teated","en":"Emergency notices"},"path":"/chatbot/emergency-notices"},{"label":{"et":"Tagasiside","en":"Feedback"},"path":"/chatbot/feedback"}]},{"label":{"et":"Vestluste analüüs","en":"Chat analysis"},"path":"/chat-analysis"},{"label":{"et":"Asutuse tööaeg","en":"Office opening hours"},"path":"/working-time"},{"label":{"et":"Vestluse Kustutamine","en":"Delete Conversations"},"path":"/delete-conversations"},{"label":{"et":"Sessiooni pikkus","en":"Session length"},"path":"/session-length"},{"label":{"et":"SKMi konfiguratsioon","en":"SKM Configuration"},"path":"/skm-configuration"},{"label":{"et":"Anonümiseerija","en":"Anonymizer"},"path":"/anonymizer"}]},{"id":"monitoring","hidden":true,"label":{"et":"Seire","en":"Monitoring"},"path":"/monitoring","children":[{"label":{"et":"Aktiivaeg","en":"Working hours"},"path":"/uptime"}]}]
+      # # for production use this one:
+      # - REACT_APP_MENU_JSON=[{"id":"conversations","label":{"et":"Vestlused","en":"Conversations"},"path":"/chat","children":[{"label":{"et":"Vastamata","en":"Unanswered"},"path":"/unanswered"},{"label":{"et":"Aktiivsed","en":"Active"},"path":"/active"},{"label":{"et":"Ootel","en":"Pending"},"path":"/pending"},{"label":{"et":"Ajalugu","en":"History"},"path":"/history"},{"label":{"et":"Valideerimised","en":"Validations"},"path":"/validations"}]},{"id":"training","label":{"et":"Treening","en":"Training"},"path":"/training","children":[{"label":{"et":"Treening","en":"Training"},"path":"/training","children":[{"label":{"et":"Teemad","en":"Themes"},"path":"/training/intents"},{"hidden":true,"label":{"et":"Avalikud teemad","en":"Public themes"},"path":"/training/common-intents"},{"label":{"et":"Teemade järeltreenimine","en":"Post training themes"},"path":"/training/intents-followup-training"},{"label":{"et":"Vastused","en":"Answers"},"path":"/training/responses"},{"label":{"et":"Reeglid","en":"Rules"},"path":"/training/rules"},{"hidden":true,"label":{"et":"Konfiguratsioon","en":"Configuration"},"path":"/training/configuration"},{"label":{"et":"Vormid","en":"Forms"},"path":"/training/forms"},{"label":{"et":"Mälukohad","en":"Slots"},"path":"/training/slots"}]},{"label":{"et":"Ajaloolised vestlused","en":"Historical conversations"},"path":"/history","children":[{"label":{"et":"Ajalugu","en":"History"},"path":"/history/history"},{"hidden":true,"label":{"et":"Pöördumised","en":"Appeals"},"path":"/history/appeal"}]},{"label":{"et":"Mudelipank ja analüütika","en":"Modelbank and analytics"},"path":"/analytics","children":[{"label":{"et":"Teemade ülevaade","en":"Overview of topics"},"path":"/analytics/overview"},{"label":{"et":"Mudelite võrdlus","en":"Comparison of models"},"path":"/analytics/models"},{"hidden":true,"label":{"et":"Testlood","en":"testTracks"},"path":"/analytics/testcases"}]},{"label":{"et":"Treeni uus mudel","en":"Train new model"},"path":"/train-new-model"}]},{"id":"analytics","label":{"et":"Analüütika","en":"Analytics"},"path":"/analytics","children":[{"label":{"et":"Ülevaade","en":"Overview"},"path":"/overview"},{"label":{"et":"Vestlused","en":"Chats"},"path":"/chats"},{"label":{"et":"Tagasiside","en":"Feedback"},"path":"/feedback"},{"label":{"et":"Avaandmed","en":"Reports"},"path":"/reports"}]},{"id":"services","hidden":true,"label":{"et":"Teenused","en":"Services"},"path":"/services","children":[{"label":{"et":"Ülevaade","en":"Overview"},"path":"/overview"},{"label":{"et":"Uus teenus","en":"New Service"},"path":"/newService"},{"label":{"et":"Probleemsed teenused","en":"Faulty Services"},"path":"/faultyServices"}]},{"id":"knowledge-center","label":{"et":"Teadmuskeskus","en":"Knowledge Center"},"path":"/knowledge-center","children":[{"id":"rag-search","label":{"et":"Mudelid ja seadistused","en":"Models management"},"path":"/rag-search","children":[{"label":{"et":"Mudelite ühendused","en":"LLM connections"},"path":"/rag-search/llm-connections"},{"label":{"et":"Viiba Seaded","en":"Prompt Configurations"},"path":"/rag-search/prompt-configurations"},{"label":{"et":"Testi mudelit","en":"Test LLM"},"path":"/rag-search/test-llm"}]},{"id":"ckb","label":{"et":"Teadmusbaas","en":"Knowledge Base"},"path":"/ckb","children":[{"label":{"et":"Agentuur","en":"Agency"},"path":"/ckb/agency"},{"label":{"et":"Aruanded","en":"Reports"},"path":"/ckb/reports"},{"label":{"et":"API Integratsioonid","en":"API Integrations"},"path":"/ckb/api"}]}]},{"id":"settings","label":{"et":"Haldus","en":"Administration"},"path":"/settings","children":[{"label":{"et":"Kasutajad","en":"Users"},"path":"/users"},{"label":{"et":"Vestlusbot","en":"Chatbot"},"path":"/chatbot","children":[{"label":{"et":"Seaded","en":"Settings"},"path":"/chatbot/settings"},{"label":{"et":"Tervitussõnum","en":"Welcome message"},"path":"/chatbot/welcome-message"},{"label":{"et":"Välimus ja käitumine","en":"Appearance and behavior"},"path":"/chatbot/appearance"},{"label":{"et":"Erakorralised teated","en":"Emergency notices"},"path":"/chatbot/emergency-notices"},{"label":{"et":"Tagasiside","en":"Feedback"},"path":"/chatbot/feedback"}]},{"label":{"et":"Vestluste analüüs","en":"Chat analysis"},"path":"/chat-analysis"},{"label":{"et":"Asutuse tööaeg","en":"Office opening hours"},"path":"/working-time"},{"label":{"et":"Sessiooni pikkus","en":"Session length"},"path":"/session-length"},{"label":{"et":"SKMi konfiguratsioon","en":"SKM Configuration"},"path":"/skm-configuration"},{"label":{"et":"Anonümiseerija","en":"Anonymizer"},"path":"/anonymizer"}]},{"id":"monitoring","hidden":true,"label":{"et":"Seire","en":"Monitoring"},"path":"/monitoring","children":[{"label":{"et":"Aktiivaeg","en":"Working hours"},"path":"/uptime"}]}]
     build:
       context: ./GUI
-      # target: web // To be used in production (Dockerfile)
       dockerfile: Dockerfile.dev
     ports:
       - 3001:3001
@@ -216,6 +272,8 @@ services:
       - ./GUI:/app
     networks:
       - bykstack
+    cpus: "0.5"
+    mem_limit: "1G"
 
   chat-widget:
     container_name: chat-widget
@@ -225,13 +283,154 @@ services:
     networks:
       - bykstack
 
-  customer-service:
-    container_name: customer-service
-    image: customer-service
+  authentication-layer:
+    container_name: authentication-layer
+    image: authentication-layer
     ports:
       - 3004:3004
     networks:
       - bykstack
+
+  opensearch-node:
+    image: opensearchproject/opensearch:2.11.1
+    container_name: opensearch-node
+    environment:
+      - node.name=opensearch-node
+      - discovery.seed_hosts=opensearch
+      - discovery.type=single-node
+      - bootstrap.memory_lock=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+      - plugins.security.disabled=true
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+    ports:
+      - 9200:9200
+      - 9600:9600
+    networks:
+      - bykstack
+
+  notifications-node:
+    container_name: notifications-node
+    build:
+      context: ./notification-server
+      dockerfile: Dockerfile
+    ports:
+      - 4040:4040
+    depends_on:
+      - opensearch-node
+    environment:
+      OPENSEARCH_PROTOCOL: http
+      OPENSEARCH_HOST: opensearch-node
+      OPENSEARCH_PORT: 9200
+      OPENSEARCH_USERNAME: admin
+      OPENSEARCH_PASSWORD: admin
+      PORT: 4040
+      REFRESH_INTERVAL: 1000
+      QUEUE_REFRESH_INTERVAL: 4000
+      CORS_WHITELIST_ORIGINS: http://localhost:3001,http://localhost:3003,http://localhost:3004,http://localhost:8080
+      RUUTER_URL: http://ruuter-public:8086
+      PRIVATE_RUUTER_URL: http://ruuter-private:8088
+      TERMINATION_TIMEOUT: 10
+    volumes:
+      - /app/node_modules
+      - ./notification-server:/app
+    networks:
+      - bykstack
+
+  anonymizer:
+    container_name: anonymizer
+    image: anonymizer
+    ports:
+      - "8089:8089"
+    environment:
+      - FLASK_ENV=production
+      - LOG_LEVEL=info
+      - HOST=0.0.0.0
+      - PORT=8089
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./anonymizer/config:/app/config:ro
+    networks:
+      - bykstack
+
+  vault:
+    container_name: vault
+    image: hashicorp/vault:1.18
+    restart: on-failure
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_ADDR: "http://0.0.0.0:8200"
+    volumes:
+      - ./vault/config.hcl:/vault/config/config.hcl:ro
+      - vault-data:/vault/data
+    entrypoint: vault server -config=/vault/config/config.hcl
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O-", "http://127.0.0.1:8200/v1/sys/health?standbyok=true&sealedcode=200&uninitcode=200"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - vault-network
+
+  vault-init:
+    container_name: vault-init
+    build:
+      context: .
+      dockerfile: Dockerfile.vault-init
+    depends_on:
+      vault:
+        condition: service_healthy
+    user: "0"
+    environment:
+      VAULT_ADDR: "http://vault:8200"
+    volumes:
+      - vault-data:/vault/data
+      - vault-agent-creds:/agent/credentials
+      - ./vault/vault-init.sh:/vault-init.sh:ro
+    entrypoint: sh /vault-init.sh
+    networks:
+      - vault-network
+    restart: "no"
+
+  vault-agent-backoffice:
+    container_name: vault-agent-backoffice
+    image: hashicorp/vault:1.18
+    entrypoint: vault agent -config=/agent/config/backoffice-agent.hcl
+    depends_on:
+      vault-init:
+        condition: service_completed_successfully
+    user: "0"
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - ./vault/agent/backoffice-agent.hcl:/agent/config/backoffice-agent.hcl:ro
+      - ./vault/templates:/vault/templates:ro
+      - ./vault/agent-out:/vault/secrets
+      - vault-agent-creds:/agent/credentials:ro
+    healthcheck:
+      test: ["CMD", "sh", "-c", "test -s /vault/secrets/.agent-token"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    networks:
+      - vault-network
+      - bykstack
+
+volumes:
+  opensearch-data:
+  spacy_models:
+  vault-data:
+  vault-agent-creds:
 
 networks:
   bykstack:
@@ -239,3 +438,7 @@ networks:
     driver: bridge
     driver_opts:
       com.docker.network.driver.mtu: 1400
+  vault-network:
+    name: vault-network
+    driver: bridge
+    internal: true

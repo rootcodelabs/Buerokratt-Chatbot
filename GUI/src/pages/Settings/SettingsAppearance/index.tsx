@@ -1,27 +1,28 @@
-import { FC, useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useTranslation } from 'react-i18next';
-import { useForm, Controller, useWatch, useFormContext } from 'react-hook-form';
-import { motion } from 'framer-motion';
-import { AxiosError } from 'axios';
-
-import {
-  Button,
-  Card,
-  FormInput,
-  FormSelect,
-  Icon,
-  Switch,
-  Track,
-} from 'components';
-import { WidgetConfig } from 'types/widgetConfig';
-import { useToast } from 'hooks/useToast';
+import { useMutation } from '@tanstack/react-query';
 import bykLogo from 'assets/logo-white.svg';
-import apiDevV2 from 'services/api-dev-v2';
-import './SettingsAppearance.scss';
+import { AxiosError } from 'axios';
 import clsx from 'clsx';
+import { Button, Card, FormInput, FormSelect, Icon, Switch, Track } from 'components';
+import { motion } from 'framer-motion';
+import withAuthorization from 'hoc/with-authorization';
+import { useToast } from 'hooks/useToast';
+import { FC, useEffect, useRef, useState } from 'react';
 import { ChromePicker } from 'react-color';
+import { Controller, useForm, useWatch } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
+import './SettingsAppearance.scss';
 import { MdOutlinePalette } from 'react-icons/md';
+import { apiDev } from 'services/api';
+import { ROLES } from 'utils/constants';
+
+import DomainTabSelector from '../../../components/DomainTabSelector';
+import DomainTransfer from '../../../components/DomainTransfer';
+import { useDomainSelectionHandler } from '../../../hooks/useDomainSelectionHandler';
+import { fetchConfigurationFromDomain } from '../../../services/configurations';
+import useStore from '../../../store';
+import { WidgetAppearance, WidgetAppearanceResponse } from '../../../types/widgetAppearance';
+
+import { SelectOption } from 'types';
 
 const variants = {
   initial: {
@@ -36,27 +37,55 @@ const SettingsAppearance: FC = () => {
   const { t } = useTranslation();
   const toast = useToast();
   const hasRendered = useRef<boolean>();
-  const { register, control, handleSubmit, reset, setValue } =
-    useForm<WidgetConfig>();
+  const { register, control, handleSubmit, reset, setValue } = useForm<WidgetAppearance>();
   const [showPreview, setShowPreview] = useState(false);
   const [showColorPalette, setShowColorPalette] = useState(false);
   const [delayFinished, setDelayFinished] = useState(false);
-  const { data: widgetConfig } = useQuery<WidgetConfig>({
-    queryKey: ['cs-get-widget-config', 'prod-2'],
-    onSuccess: (data) => {
-      if (!hasRendered.current) {
-        reset({
-          ...data,
-          widgetAnimation:
-            data.widgetAnimation.length === 0
-              ? 'shockwave'
-              : data.widgetAnimation,
-        });
-        hasRendered.current = true;
-      }
-    },
-  });
+  const multiDomainEnabled = import.meta.env.REACT_APP_ENABLE_MULTI_DOMAIN?.toLowerCase() === 'true';
+  const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
+  const rawDomains = useStore((state) => state.allDomains);
+  const allDomains: SelectOption[] = rawDomains.map((d) => ({ label: d.name, value: d.id }));
 
+  useEffect(() => {
+    if (multiDomainEnabled) {
+      hasRendered.current = true;
+      resetSettingsToDefault();
+    } else {
+      fetchData('none');
+    }
+  }, []);
+
+  const fetchData = async (selectedDomain: string) => {
+    try {
+      const data: WidgetAppearanceResponse = await fetchConfigurationFromDomain<WidgetAppearanceResponse>(
+        'configs/widget',
+        selectedDomain,
+      );
+
+      const res = data.response;
+
+      if (res.isWidgetActive === null) {
+        resetSettingsToDefault();
+        hasRendered.current = true;
+        return;
+      }
+
+      reset({
+        ...res,
+        isWidgetActive: res.isWidgetActive === 'true',
+        widgetAnimation: res.widgetAnimation?.length === 0 ? 'shockwave' : res.widgetAnimation,
+      });
+
+      hasRendered.current = true;
+    } catch (error) {
+      console.error('Failed to fetch appearance', error);
+    }
+  };
+
+  const isWidgetActive = useWatch({
+    control,
+    name: 'isWidgetActive',
+  });
   const widgetProactiveSeconds = useWatch({
     control,
     name: 'widgetProactiveSeconds',
@@ -73,8 +102,7 @@ const SettingsAppearance: FC = () => {
   const widgetAnimation = useWatch({ control, name: 'widgetAnimation' });
 
   const widgetConfigMutation = useMutation({
-    mutationFn: (data: WidgetConfig) =>
-      apiDevV2.post<WidgetConfig>('cs-set-widget-config', data),
+    mutationFn: (data: WidgetAppearance) => apiDev.post<WidgetAppearance>('configs/widget', data),
     onSuccess: () => {
       toast.open({
         type: 'success',
@@ -105,15 +133,13 @@ const SettingsAppearance: FC = () => {
   }, []);
 
   const handleClickOutside = (event: MouseEvent) => {
-    if (
-      colorComponentRef.current &&
-      !colorComponentRef.current.contains(event.target as Node)
-    ) {
+    if (colorComponentRef.current && !colorComponentRef.current.contains(event.target as Node)) {
       setShowColorPalette(false);
     }
   };
 
   const handleFormSubmit = handleSubmit((data) => {
+    data.domainUUID = multiDomainEnabled ? selectedDomains : [];
     widgetConfigMutation.mutate(data);
   });
 
@@ -132,16 +158,57 @@ const SettingsAppearance: FC = () => {
     });
   };
 
-  if (!widgetConfig) return <>Loading...</>;
+  const resetSettingsToDefault = () => {
+    reset({
+      widgetProactiveSeconds: 2,
+      widgetDisplayBubbleMessageSeconds: 2,
+      widgetBubbleMessageText: '',
+      widgetColor: '#27ff00',
+      isWidgetActive: false,
+      widgetAnimation: 'shockwave',
+    });
+  };
+
+  const transferMutation = useMutation({
+    mutationFn: (data: { sourceDomainUuid: string; targetDomainUuids: string[] }) =>
+      apiDev.post('configs/transfer/widget', data),
+    onSuccess: () => {
+      toast.open({
+        type: 'success',
+        title: t('global.notification'),
+        message: t('toast.success.updateSuccess'),
+      });
+    },
+    onError: (error: AxiosError) => {
+      toast.open({
+        type: 'error',
+        title: t('global.notificationError'),
+        message: error.message,
+      });
+    },
+  });
+
+  const handleTransfer = (targetIds: string[]) => {
+    transferMutation.mutate({ sourceDomainUuid: selectedDomains[0], targetDomainUuids: targetIds });
+  };
+
+  const handleDomainSelection = useDomainSelectionHandler(setSelectedDomains, fetchData, resetSettingsToDefault);
+
+  const sourceDomainSelected = multiDomainEnabled && selectedDomains.length === 1;
+
+  if (hasRendered.current === undefined) return <>Loading...</>;
 
   return (
-    <div ref={colorComponentRef}>
-      <h1>{t('settings.appearance.title')}</h1>
+    <div>
+      <h1 style={{ paddingBottom: 16 }}>{t('settings.appearance.title')}</h1>
 
       <Card
+        tabs={multiDomainEnabled && <DomainTabSelector onChange={handleDomainSelection} />}
         footer={
           <Track gap={8} justify="end">
-            <Button onClick={handleFormSubmit}>{t('global.save')}</Button>
+            <Button disabled={(multiDomainEnabled && selectedDomains.length === 0) || false} onClick={handleFormSubmit}>
+              {t('global.save')}
+            </Button>
             <Button appearance="secondary" onClick={handlePreview}>
               {t('global.preview')}
             </Button>
@@ -149,11 +216,21 @@ const SettingsAppearance: FC = () => {
         }
       >
         <Track gap={8} direction="vertical" align="left">
-          <FormInput
-            {...register('widgetProactiveSeconds')}
-            label={t('settings.appearance.widgetProactiveSeconds')}
-            type="number"
-          />
+          <Track justify="between" align="center" style={{ width: '100%' }}>
+            <FormInput
+              {...register('widgetProactiveSeconds')}
+              label={t('settings.appearance.widgetProactiveSeconds')}
+              type="number"
+            />
+            {sourceDomainSelected && (
+              <DomainTransfer
+                allDomains={allDomains}
+                excludedDomainIds={selectedDomains}
+                onTransfer={handleTransfer}
+                isTransferring={transferMutation.isPending}
+              />
+            )}
+          </Track>
           <Controller
             name="isWidgetActive"
             control={control}
@@ -175,44 +252,47 @@ const SettingsAppearance: FC = () => {
             {...register('widgetBubbleMessageText')}
             label={t('settings.appearance.widgetBubbleMessageText')}
           />
-          <FormInput
-            {...register('widgetColor')}
-            readOnly={true}
-            label={t('settings.appearance.widgetColor')}
-            onClick={() => setShowColorPalette(!showColorPalette)}
-          >
-            {
-              <div>
-                <Icon
-                  icon={
-                    <MdOutlinePalette fontSize={20} color="rgba(0,0,0,0.54)" />
-                  }
-                  onIconClicked={() => setShowColorPalette(!showColorPalette)}
-                />
-                {showColorPalette && (
-                  <div style={{ position: 'absolute', zIndex: '2' }}>
-                    <div
-                      onClick={() => setShowColorPalette(!showColorPalette)}
-                    />
-                    <ChromePicker
-                      {...register('widgetColor')}
-                      color={widgetColor}
-                      onChange={(color) => setValue('widgetColor', color.hex)}
-                    />
-                  </div>
-                )}
-              </div>
-            }
-          </FormInput>
+          <div ref={colorComponentRef} style={{ width: '100%', position: 'relative' }}>
+            <FormInput
+              {...register('widgetColor')}
+              readOnly={true}
+              label={t('settings.appearance.widgetColor')}
+              onClick={() => setShowColorPalette(!showColorPalette)}
+            >
+              {
+                <div style={{ flexDirection: 'row' }}>
+                  <button
+                    style={{
+                      position: 'absolute',
+                      zIndex: '2',
+                      right: '10px',
+                      bottom: '95%',
+                    }}
+                    onClick={() => setShowColorPalette(!showColorPalette)}
+                  >
+                    <Icon icon={<MdOutlinePalette fontSize={20} color="rgba(0,0,0,0.54)" />} />
+                  </button>
+                  {showColorPalette && (
+                    <div style={{ position: 'absolute', zIndex: '2' }}>
+                      <ChromePicker
+                        {...register('widgetColor')}
+                        color={widgetColor}
+                        onChange={(color) => setValue('widgetColor', color.hex)}
+                      />
+                    </div>
+                  )}
+                </div>
+              }
+            </FormInput>
+          </div>
           <Controller
             name="widgetAnimation"
             control={control}
             render={({ field }) => (
               <FormSelect
                 {...field}
-                onSelectionChange={(selection) =>
-                  field.onChange(selection?.value)
-                }
+                onSelectionChange={(selection) => field.onChange(selection?.value)}
+                onOpen={() => setShowColorPalette(false)}
                 label={t('settings.appearance.widgetAnimation')}
                 defaultValue={field.value}
                 options={[
@@ -235,7 +315,7 @@ const SettingsAppearance: FC = () => {
                 'profile--shockwave': widgetAnimation === 'shockwave',
                 'profile--jump': widgetAnimation === 'jump',
                 'profile--wiggle': widgetAnimation === 'wiggle',
-              }
+              },
             )}
             variants={variants}
             initial="initial"
@@ -247,7 +327,7 @@ const SettingsAppearance: FC = () => {
           >
             <img src={bykLogo} alt="Buerokratt logo" width={45} />
           </motion.div>
-          {control._formValues.isWidgetActive && (
+          {isWidgetActive && (
             <div
               className={clsx('profile__greeting-message', {
                 'profile__greeting-message--active': delayFinished,
@@ -262,4 +342,4 @@ const SettingsAppearance: FC = () => {
   );
 };
 
-export default SettingsAppearance;
+export default withAuthorization(SettingsAppearance, [ROLES.ROLE_ADMINISTRATOR]);

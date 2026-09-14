@@ -1,0 +1,117 @@
+declaration:
+  call: declare
+  version: 0.1
+  description: "Decription placeholder for 'ENDED-CHATS'"
+  method: post
+  accepts: json
+  returns: json
+  namespace: backoffice
+  allowlist:
+    params:
+      - field: isChatAnalysisEnabled
+        type: boolean
+        description: "Parameter 'isChatAnalysisEnabled'"
+    body:
+      - field: endDate
+        type: string
+        description: "Body field 'endDate'"
+      - field: startDate
+        type: string
+        description: "Body field 'startDate'"
+      - field: page
+        type: number
+        description: "Body field 'page'"
+      - field: page_size
+        type: number
+        description: "Body field 'page_size'"
+      - field: sorting
+        type: string
+        description: "Body field 'sorting'"
+      - field: search
+        type: string
+        description: "Body field 'search'"
+      - field: customerSupportIds
+        type: object
+        description: "Body field 'customerSupportIds'"
+      - field: urls
+        type: array
+        description: "Body field 'urls'"
+      - field: feedbackRatings
+        type: array
+        description: "Body field 'feedbackRatings'"
+      - field: isTest
+        type: array
+        description: "Body field 'isTest'"
+      - field: isPreserve
+        type: array
+        description: "Body field 'isPreserve'"
+      - field: hasComment
+        type: array
+        description: "Body field 'hasComment'"
+      - field: hasFeedback
+        type: array
+        description: "Body field 'hasFeedback'"
+      - field: authenticatedChats
+        type: array
+        description: "Body field 'authenticatedChats'"
+      - field: status
+        type: array
+        description: "Body field 'status'"
+      - field: responseQuality
+        type: array
+        description: "Body field 'responseQuality'"
+      - field: followUpStatus
+        type: array
+        description: "Body field 'followUpStatus'"
+      - field: theme
+        type: array
+        description: "Body field 'theme'"
+
+extractRequestData:
+  assign:
+    startDate: "${incoming.body.startDate}"
+    endDate: "${incoming.body.endDate}"
+    urls: ${incoming.body.urls}
+    feedbackRatings: ${incoming.body.feedbackRatings ?? []}
+    isTest: ${incoming.body.isTest ?? []}
+    isPreserve: ${incoming.body.isPreserve ?? []}
+    hasComment: ${incoming.body.hasComment ?? []}
+    hasFeedback: ${incoming.body.hasFeedback ?? []}
+    authenticatedChats: ${incoming.body.authenticatedChats ?? []}
+    status: ${incoming.body.status ?? []}
+    responseQuality: ${incoming.body.responseQuality ?? []}
+    followUpStatus: ${incoming.body.followUpStatus ?? []}
+    theme: ${incoming.body.theme ?? []}
+    isChatAnalysisEnabled: ${incoming.params.isChatAnalysisEnabled === true || incoming.params.isChatAnalysisEnabled === 'true'}
+
+getEndedChats:
+  call: http.post
+  args:
+    url: "[#CHATBOT_RESQL]/get-cs-all-ended-chats"
+    body:
+      start: ${startDate}
+      end: ${endDate}
+      page: ${incoming.body.page}
+      page_size: ${incoming.body.page_size}
+      sorting: ${incoming.body.sorting}
+      search: ${incoming.body.search}
+      customerSupportIds: ${incoming.body.customerSupportIds?.join(',') ?? ''}
+      csaId: ${"chatbot"}
+      urls: ${urls}
+      feedbackRatings: ${feedbackRatings}
+      isTest: ${isTest}
+      isPreserve: ${isPreserve}
+      hasComment: ${hasComment}
+      hasFeedback: ${hasFeedback}
+      authenticatedChats: ${authenticatedChats}
+      status: ${status}
+      responseQuality: ${responseQuality}
+      followUpStatus: ${followUpStatus}
+      theme: ${theme}
+      isChatAnalysisEnabled: ${isChatAnalysisEnabled}
+      isPaginationEnabled: ${true}
+  result: res
+
+returnSuccess:
+  return: ${res.response.body}
+  next: end

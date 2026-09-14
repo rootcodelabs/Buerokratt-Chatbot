@@ -1,0 +1,261 @@
+const cookieParser = require('cookie-parser');
+const cors = require('cors');
+const csurf = require('csurf');
+const express = require('express');
+const helmet = require('helmet');
+
+const { buildNotificationSearchInterval, buildQueueCounter } = require('./addOns');
+const { initializeAzureOpenAI } = require('./azureOpenAI');
+const { serverConfig } = require('./config');
+const { stoppedChannels } = require('./connectionManager');
+const { addToLogoutQueue, removeFromLogoutQueue } = require('./logoutQueue');
+const {
+  enqueueChatId,
+  dequeueChatId,
+  sendBulkNotification,
+  createAzureOpenAIStreamRequest,
+  createLLMOrchestrationStreamRequest,
+} = require('./openSearch');
+const { buildSSEResponse } = require('./sseUtil');
+const streamQueue = require('./streamQueue');
+const { addToTerminationQueue, removeFromTerminationQueue } = require('./terminationQueue');
+
+const app = express();
+
+app.use(cors());
+app.use(helmet.hidePoweredBy());
+app.use(express.json({ extended: false }));
+app.use(cookieParser());
+app.use(csurf({ cookie: true, ignoreMethods: ['GET', 'POST'] }));
+
+try {
+  initializeAzureOpenAI();
+  console.log('Azure OpenAI initialized successfully');
+} catch (error) {
+  console.error('Failed to initialize Azure OpenAI:', error.message);
+}
+
+app.get('/sse/notifications/:channelId', (req, res) => {
+  const { channelId } = req.params;
+  buildSSEResponse({
+    req,
+    res,
+    buildCallbackFunction: buildNotificationSearchInterval({ channelId }),
+    channelId,
+  });
+});
+
+app.get('/sse/queue/:id', (req, res) => {
+  const { id } = req.params;
+  buildSSEResponse({
+    req,
+    res,
+    buildCallbackFunction: buildQueueCounter({ id }),
+  });
+});
+
+app.use((req, res, next) => {
+  console.log('NEW REQUEST');
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl}`);
+  console.log('Headers:', req.headers);
+  if (req.body && Object.keys(req.body).length > 0) {
+    console.log('Body:', req.body);
+  }
+  console.log('---------------------------------------------------');
+  next();
+});
+
+app.post('/bulk-notifications', async (req, res) => {
+  try {
+    await sendBulkNotification(req.body);
+    res.status(200).json({ response: 'sent successfully' });
+  } catch {
+    res.status(500).json({ response: 'error' });
+  }
+});
+
+app.post('/add-to-logout-queue', async (req, res) => {
+  const cookies = req.headers.cookie;
+
+  try {
+    await addToLogoutQueue(cookies, 5, () =>
+      fetch(`${process.env.PRIVATE_RUUTER_URL}/backoffice/accounts/logout`, {
+        method: 'GET',
+        headers: {
+          cookie: cookies,
+        },
+      }),
+    );
+
+    console.log('User was loged out.');
+    res.sendStatus(200);
+  } catch (err) {
+    console.error('Error forwarding request:', JSON.stringify(err));
+    res.sendStatus(500);
+  }
+});
+
+app.post('/remove-from-logout-queue', async (req, res) => {
+  try {
+    await removeFromLogoutQueue(req.headers.cookie);
+    res.status(200).json({ response: 'Logout would be canceled' });
+  } catch {
+    res.status(500).json({ response: 'error' });
+  }
+});
+
+app.post('/enqueue', async (req, res) => {
+  try {
+    await enqueueChatId(req.body.id);
+    res.status(200).json({ response: 'enqueued successfully' });
+  } catch {
+    res.status(500).json({ response: 'error' });
+  }
+});
+
+app.post('/dequeue', async (req, res) => {
+  try {
+    await dequeueChatId(req.body.id);
+    res.status(200).json({ response: 'dequeued successfully' });
+  } catch {
+    res.status(500).json({ response: 'error' });
+  }
+});
+
+app.post('/add-chat-to-termination-queue', express.json(), express.text(), async (req, res) => {
+  try {
+    const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+
+    addToTerminationQueue(body.chatId, body.timeout, () =>
+      fetch(`${process.env.RUUTER_URL}/backoffice/chats/end`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          cookie: body.cookie || req.headers.cookie,
+        },
+        body: JSON.stringify({
+          message: {
+            chatId: body.chatId,
+            authorRole: 'end-user',
+            event: 'CLIENT_LEFT_FOR_UNKNOWN_REASONS',
+            authorTimestamp: new Date().toISOString(),
+          },
+        }),
+      }),
+    );
+
+    res.status(200).json({ response: 'Chat will be terminated soon' });
+  } catch (error) {
+    console.error('Error adding chat to termination queue:', error);
+    res.status(500).json({ response: 'error' });
+  }
+});
+
+app.post('/remove-chat-from-termination-queue', express.json(), express.text(), async (req, res) => {
+  const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
+
+  try {
+    removeFromTerminationQueue(body.chatId);
+    res.status(200).json({ response: 'Chat termination will be canceled' });
+  } catch {
+    res.status(500).json({ response: 'error' });
+  }
+});
+
+app.post('/channels/:channelId/llm-stream', async (req, res) => {
+  const { channelId } = req.params;
+  const { chatId, message, authorId, conversationHistory = [] } = req.body;
+
+  if (!message) {
+    return res.status(400).json({ error: 'message is required' });
+  }
+
+  res.status(202).json({ response: 'stream triggered' });
+
+  createLLMOrchestrationStreamRequest({
+    channelId,
+    chatId: chatId || channelId,
+    message,
+    authorId,
+    conversationHistory,
+  }).catch((error) => {
+    console.error('LLM stream error for channel:', error.message);
+  });
+});
+
+app.post('/channels/:channelId/stream', (req, res) => {
+  const { channelId } = req.params;
+  const {
+    messages,
+    options = {},
+    use_agentic = false,
+    agent_name,
+    agent_type,
+    azure_client_id,
+    azure_client_secret,
+    azure_agentic_max_output_tokens,
+    raw_response = false,
+  } = req.body;
+
+  if (!messages || !Array.isArray(messages)) {
+    return res.status(400).json({ error: 'Messages array is required' });
+  }
+
+  res.status(202).json({ response: 'stream triggered' });
+
+  createAzureOpenAIStreamRequest({
+    channelId,
+    messages,
+    options,
+    use_agentic,
+    agent_name,
+    agent_type,
+    azure_client_id,
+    azure_client_secret,
+    azure_agentic_max_output_tokens,
+    raw_response,
+  }).catch((error) => {
+    console.error(`Stream error for channel ${channelId}:`, error.message);
+  });
+});
+
+app.post('/channels/:channelId/stream/stop', async (req, res) => {
+  try {
+    const { channelId } = req.params;
+
+    stoppedChannels.add(channelId);
+    streamQueue.clearChannelQueue(channelId);
+
+    setTimeout(() => {
+      stoppedChannels.delete(channelId);
+    }, 1000);
+
+    res.status(200).json();
+  } catch (error) {
+    console.error(`Error stopping stream for channel ${req.params.channelId}:`, error);
+    res.status(200).json();
+  }
+});
+
+setInterval(
+  () => {
+    const now = Date.now();
+    const oneHour = 60 * 60 * 1000;
+
+    for (const [channelId, requests] of streamQueue.queue.entries()) {
+      const staleRequests = requests.filter((req) => now - req.timestamp > oneHour || !streamQueue.shouldRetry(req));
+
+      staleRequests.forEach((staleReq) => {
+        streamQueue.removeFromQueue(channelId, staleReq.id);
+        console.log(`Cleaned up stale stream request for channel ${channelId}`);
+      });
+    }
+  },
+  5 * 60 * 1000,
+);
+
+const server = app.listen(serverConfig.port, () => {
+  console.log(`Server running on port ${serverConfig.port}`);
+});
+
+module.exports = server;

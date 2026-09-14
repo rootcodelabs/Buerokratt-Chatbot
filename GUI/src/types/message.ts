@@ -2,12 +2,12 @@ export interface UseSendAttachment {
   successCb?: (data: any) => void;
   errorCb?: (error: any) => void;
   data: {
-    chatId: string,
-    name: string,
-    type: string,
-    size: string,
-    base64: string,
-  }
+    chatId: string;
+    name: string;
+    type: string;
+    size: string;
+    base64: string;
+  };
 }
 
 export interface Attachment {
@@ -23,6 +23,7 @@ export interface Message {
   chatId: string;
   content?: string;
   event?: string;
+  csaTitle?: string;
   authorId?: string;
   authorTimestamp: string;
   authorFirstName: string;
@@ -31,11 +32,14 @@ export interface Message {
   forwardedByUser: string;
   forwardedFromCsa: string;
   forwardedToCsa: string;
+  originalBaseId?: string;
+  originalCreated?: string;
   rating?: string;
   created?: string;
-  updated?: string;
-
   preview?: string;
+  updated?: string;
+  buttons?: string;
+  options?: string;
 }
 
 export interface MessagePreviewSseResponse {
@@ -53,7 +57,6 @@ export enum AttachmentTypes {
   ODT = 'application/vnd.oasis.opendocument.text',
   XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   ODS = 'ods',
-  BDOC = 'application/vnd.etsi.asic-e+zip',
   CDOC = 'application/x-cdoc',
   ASICE = 'application/vnd.etsi.asic-e+zip',
   MP3 = 'audio/mpeg',
@@ -63,4 +66,9 @@ export enum AttachmentTypes {
   WEBM = 'video/webm',
   OGG = 'video/ogg',
   MOV = 'video/quicktime',
+}
+
+export interface MessageButton {
+  title: string;
+  payload: string;
 }

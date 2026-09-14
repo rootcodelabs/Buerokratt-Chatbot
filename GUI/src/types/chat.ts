@@ -2,6 +2,8 @@ export enum CHAT_STATUS {
   ENDED = 'ENDED',
   OPEN = 'OPEN',
   REDIRECTED = 'REDIRECTED',
+  IDLE = 'IDLE',
+  VALIDATING = 'VALIDATING',
 }
 
 export enum CHAT_EVENTS {
@@ -24,15 +26,30 @@ export enum CHAT_EVENTS {
   ASK_PERMISSION_ACCEPTED = 'ask-permission-accepted',
   ASK_PERMISSION_REJECTED = 'ask-permission-rejected',
   ASK_PERMISSION_IGNORED = 'ask-permission-ignored',
+  ASK_TO_FORWARD_TO_CSA = 'ask_to_forward_to_csa',
+  FORWARDED_TO_BACKOFFICE = 'forwarded_to_backoffice',
+  CONTINUE_CHATTING_WITH_BOT = 'continue_chatting_with_bot',
   RATING = 'rating',
   REDIRECTED = 'redirected',
   CONTACT_INFORMATION = 'contact-information',
   CONTACT_INFORMATION_REJECTED = 'contact-information-rejected',
   CONTACT_INFORMATION_FULFILLED = 'contact-information-fulfilled',
+  UNAVAILABLE_CONTACT_INFORMATION_FULFILLED = 'unavailable-contact-information-fulfilled',
+  CONTACT_INFORMATION_SKIPPED = 'contact-information-skipped',
   REQUESTED_CHAT_FORWARD = 'requested-chat-forward',
   REQUESTED_CHAT_FORWARD_ACCEPTED = 'requested-chat-forward-accepted',
   REQUESTED_CHAT_FORWARD_REJECTED = 'requested-chat-forward-rejected',
+  UNAVAILABLE_ORGANIZATION = 'unavailable_organization',
+  UNAVAILABLE_CSAS = 'unavailable_csas',
+  UNAVAILABLE_CSAS_ASK_CONTACTS = 'unavailable_csas_ask_contacts',
+  UNAVAILABLE_HOLIDAY = 'unavailable_holiday',
+  ASSIGN_PENDING_CHAT_CSA = 'pending-assigned',
+  PENDING_USER_REACHED = 'user-reached',
+  PENDING_USER_NOT_REACHED = 'user-not-reached',
+  USER_AUTHENTICATED = 'user-authenticated',
   READ = 'message-read',
+  WAITING_VALIDATION = 'waiting_validation',
+  APPROVED_VALIDATION = 'approved_validation',
 }
 
 export interface Chat {
@@ -40,6 +57,8 @@ export interface Chat {
   csaTitle?: string | null;
   customerSupportId?: string;
   customerSupportDisplayName?: string;
+  customerSupportFirstName?: string;
+  customerSupportLastName?: string;
   endUserId?: string;
   endUserEmail?: string;
   endUserPhone?: string;
@@ -61,9 +80,26 @@ export interface Chat {
   forwardedToCsa?: string;
   receivedFrom?: string;
   comment?: string;
+  commentAddedDate?: string;
+  commentAuthor?: string;
   labels: string;
+  feedbackText?: string;
+  feedbackRating?: number;
+  nps?: number;
+  userDisplayName?: string;
 }
 export interface GroupedChat {
+  myChats: Chat[];
+  otherChats: {
+    groupId: string;
+    name: string;
+    chats: Chat[];
+  }[];
+}
+
+export interface GroupedPendingChat {
+  newChats: Chat[];
+  inProcessChats: Chat[];
   myChats: Chat[];
   otherChats: {
     groupId: string;
@@ -81,4 +117,8 @@ export enum MessageSseEvent {
 export type MessageStatus = {
   messageId: string | null;
   readTime: any;
+};
+
+export enum BACKOFFICE_NAME {
+  DEFAULT = 'Bürokratt',
 }
